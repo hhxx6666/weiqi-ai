@@ -1,0 +1,18 @@
+{
+  "name": "weiqi-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zero-dependency Go (weiqi) engine with an AI opponent and a live win-rate panel that runs entirely in the browser",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node preview-server.cjs",
+    "build": "node build-standalone.cjs ../index.html",
+    "test": "node test-engine.js && node test-hints.cjs && node test-record.cjs && node test-ending.cjs && node test-katago-bridge.cjs",
+    "test:engine": "node test-engine.js",
+    "test:hints": "node test-hints.cjs",
+    "test:record": "node test-record.cjs",
+    "test:ending": "node test-ending.cjs",
+    "test:katago": "node test-katago-bridge.cjs"
+  }
+}

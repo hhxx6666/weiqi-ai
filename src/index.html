@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>围棋 · AI 对局与实时胜率</title>
+<style>
+  :root{--accent:#2456b8;--ink:#242424;--muted:#666;--line:#e3e3e3;--bg:#f6f6f6;--card:#fff}
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);color:var(--ink);
+    font-family:Manrope,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;padding:24px 28px 40px;
+  }
+  .app{max-width:1180px;margin:0 auto}
+  header{display:flex;align-items:baseline;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+  header h1{font-size:19px;margin:0;letter-spacing:.2px}
+  header .sub{font-size:13px;color:var(--muted)}
+  header .badge{margin-left:auto;font-size:12px;color:var(--accent);background:#e9effb;
+    border:1px solid #d3e0f7;padding:4px 10px;border-radius:999px}
+  .stage{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:22px;align-items:start}
+  @media (max-width:900px){.stage{grid-template-columns:1fr}}
+
+  .board-card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;
+    box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(20,30,60,.04)}
+  #board{width:100%;height:auto;display:block;border-radius:10px;cursor:pointer;touch-action:manipulation}
+  .board-foot{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap}
+  .status{font-size:13px;color:var(--muted);min-height:20px;flex:1}
+  .status b{color:var(--ink);font-weight:600}
+
+  .panel{display:flex;flex-direction:column;gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 15px}
+  .card h2{font-size:11.5px;font-weight:600;color:var(--muted);margin:0 0 10px;
+    letter-spacing:.6px;text-transform:uppercase}
+  .controls{display:flex;flex-wrap:wrap;gap:8px}
+  .hint-status{margin:8px 0 0;font-size:13px;color:var(--muted);line-height:1.5}
+  .hint-status:empty{display:none}
+  #btnTeach[aria-pressed="true"],#btnPractice[aria-pressed="true"]{background:#e9effb;border-color:#c9d6ee;color:var(--accent);font-weight:600}
+  .row[hidden],.controls[hidden]{display:none}
+  .replay-position{font-size:13px;color:var(--muted);margin:8px 0}
+  .score-key{display:flex;gap:12px;font-size:13px;margin:8px 0;color:var(--muted)}
+  button{font:inherit;font-size:13px;padding:8px 13px;border-radius:9px;cursor:pointer;
+    border:1px solid var(--line);background:#fff;color:var(--ink);transition:.16s}
+  button:hover:not(:disabled){border-color:#c9d6ee;background:#f7fafe}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.primary:hover:not(:disabled){background:#1d47a0;border-color:#1d47a0}
+  .seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .seg button{border:0;border-radius:0;padding:8px 11px;background:#fff}
+  .seg button[aria-pressed="true"]{background:#e9effb;color:var(--accent);font-weight:600}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;color:var(--muted)}
+  .tip{font-size:11.5px;color:#999;margin:14px 0 8px;line-height:1.5}
+  input[type="text"]{font:inherit;font-size:12px;padding:7px 9px;border-radius:9px;
+    border:1px solid var(--line);background:#fff;color:var(--ink);outline:none}
+  input[type="text"]:focus{border-color:#c9d6ee}
+  select{font:inherit;font-size:13px;padding:7px 10px;border-radius:9px;border:1px solid var(--line);
+    background:#fff;color:var(--ink);cursor:pointer}
+  .row + .row{margin-top:12px}
+  @media (max-width:450px){
+    body{padding:16px 12px 24px}
+    .row{flex-wrap:wrap}
+    .controls{gap:6px}
+    .controls button{padding-inline:10px}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>围棋 · AI 对局</h1>
+    <span class="sub" id="boardMeta">19 路 · 中国规则 · 贴目 7.5</span>
+    <span class="badge">MCTS 引擎 + 实时胜率</span>
+  </header>
+
+  <div class="stage">
+    <div class="board-card">
+      <canvas id="board" aria-label="围棋棋盘"></canvas>
+      <div class="board-foot">
+        <div class="status" id="status">准备开始</div>
+        <div class="seg" id="turnSeg">
+          <button type="button" data-color="1" aria-pressed="true">我执黑</button>
+          <button type="button" data-color="2" aria-pressed="false">我执白</button>
+        </div>
+      </div>
+    </div>
+
+    <aside class="panel">
+      <div id="wrHost"></div>
+
+      <section class="card" id="endingCard" hidden>
+        <h2>终局</h2>
+        <p class="hint-status" id="scoreStatus" role="status"></p>
+        <p class="hint-status" id="scoreGuide">点击棋子标记整块死棋，再确认数子。</p>
+        <p class="score-key" id="scoreKey">深点为黑方区域，浅点为白方区域，叉号为标记的死棋。</p>
+        <div class="controls" id="scoreActions">
+          <button type="button" id="btnScore" class="primary">确认数子</button>
+          <button type="button" id="btnClearDead">清除标记</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>控制</h2>
+        <div class="controls">
+          <button type="button" class="primary" id="btnNew">新局</button>
+          <button type="button" id="btnPass">停一手</button>
+          <button type="button" id="btnUndo">悔棋</button>
+          <button type="button" id="btnHint">提示</button>
+          <button type="button" id="btnTeach" aria-pressed="false">教学模式</button>
+          <button type="button" id="btnResign">认输</button>
+        </div>
+        <div class="row" id="practiceControls" hidden>
+          <button type="button" id="btnPractice" aria-pressed="false">先猜一手</button>
+          <button type="button" id="btnPlayGuess" hidden>落下这手</button>
+        </div>
+        <div role="status">
+          <p class="hint-status" id="hintStatus"></p>
+          <p class="hint-status" id="hintLesson"></p>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <label for="sizeSel">棋盘路数</label>
+          <select id="sizeSel">
+            <option value="9">9 路</option>
+            <option value="13">13 路</option>
+            <option value="19" selected>19 路</option>
+          </select>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <span>让子</span>
+          <select id="handicapSel" aria-label="让子数">
+            <option value="0">分先（贴 7.5）</option>
+            <option value="1">让 1 子（黑先不贴目）</option>
+            <option value="2">让 2 子</option>
+            <option value="3">让 3 子</option>
+            <option value="4">让 4 子</option>
+            <option value="5">让 5 子</option>
+            <option value="6">让 6 子</option>
+            <option value="7">让 7 子</option>
+            <option value="8">让 8 子</option>
+            <option value="9">让 9 子</option>
+          </select>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <span>对局类型</span>
+          <div class="seg" id="modeSeg">
+            <button type="button" data-mode="ai" aria-pressed="true">人机</button>
+            <button type="button" data-mode="pvp" aria-pressed="false">联机</button>
+          </div>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <span>KataGo</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input id="katagoUrl" type="text" placeholder="http://127.0.0.1:8100" style="width:158px">
+            <button type="button" id="btnKatago">连接</button>
+          </div>
+        </div>
+        <p class="tip" id="levelTip"></p>
+        <div class="row">
+          <span>AI 强度</span>
+          <div class="seg" id="levelSeg">
+            <button type="button" data-level="beginner">入门</button>
+            <button type="button" data-level="novice">新手</button>
+            <button type="button" data-level="normal" aria-pressed="true">进阶</button>
+            <button type="button" data-level="strong">强手</button>
+            <button type="button" data-level="master">大师</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="recordCard">
+        <h2>棋谱与复盘</h2>
+        <div class="controls">
+          <button type="button" id="btnImport">导入 SGF</button>
+          <input type="file" id="recordFile" accept=".sgf,text/plain,application/x-go-sgf" hidden>
+          <button type="button" id="btnExport">导出 SGF</button>
+        </div>
+        <p class="replay-position" id="replayPosition" aria-live="polite"></p>
+        <div class="controls">
+          <button type="button" id="btnPrev">上一手</button>
+          <button type="button" id="btnNext">下一手</button>
+          <button type="button" id="btnLive">回到对局</button>
+        </div>
+        <p class="hint-status" id="recordStatus" role="status"></p>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script src="./go-engine.js"></script>
+<script src="./winrate-panel.js"></script>
+<script src="./go-record.js"></script>
+<script src="./go-ending.js"></script>
+<script>
+(function () {
+  'use strict';
+  var G = window.GoEngine, R = window.GoRecord, E = window.GoEnding, N = 19, KOMI = 7.5;
+  var LET = 'ABCDEFGHJKLMNOPQRST';
+
+  var DBG = false;
+  try { DBG = new URLSearchParams(location.search).get('debug') === '1'; } catch (e) { DBG = false; }
+
+  var pos, timeline = [], evaluations = [], humanColor = G.BLACK, level = 'normal', thinking = false, hover = -1, handicap = 0;
+  var replay = null, imported = false, gameResult = null, dead = new Set();
+  var saveKey = 'go-match-autosave-v1';
+  var hints = [];
+  var HINT_MS = 12000;
+  var KATAGO_HINT = { maxVisits: 15000, maxTime: 15 };
+  var KATAGO_LEVELS = {
+    beginner: { maxVisits: 40 }, novice: { maxVisits: 150 }, normal: { maxVisits: 500 },
+    strong: { maxVisits: 1500 }, master: { maxVisits: 4000, maxTime: 10 }
+  };
+  var hintPending = false;    // 提示分析进行中（可取消）
+  var hintRequest = null;
+  var teaching = false, mode = 'ai';
+  var practice = false, guess = null, lessonMarks = [];
+
+  /* ---------- 可选：接 KataGo（URL 形如 index.html?katago=http://127.0.0.1:8100） ---------- */
+  var REMOTE = '';
+  try { REMOTE = new URLSearchParams(location.search).get('katago') || ''; } catch (e) { REMOTE = ''; }
+  REMOTE = REMOTE.replace(/\/+$/, '');
+
+  function remoteAnalyze(opts, cb) {
+    var body = {
+      board: G.toAscii(pos),
+      boardSize: N,
+      toMove: pos.toMove,
+      komi: pos.komi,
+      maxVisits: opts.maxVisits
+    };
+    if (opts.maxTime) body.maxTime = opts.maxTime;
+    fetch(REMOTE + '/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: opts.signal
+    }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (j) {
+      if (!j || j.move == null) throw new Error('返回格式不对');
+      cb(null, j);
+    }).catch(function (e) { cb(e); });
+  }
+
+  var TIP_LOCAL = '本地搜索预算：大师 ' + G.LEVELS.master.timeMs / 1000 + ' 秒，提示 ' + HINT_MS / 1000 + ' 秒。';
+  var TIP_REMOTE = 'KataGo 搜索预算：大师 ' + KATAGO_LEVELS.master.maxVisits + ' 次访问 / ' +
+    KATAGO_LEVELS.master.maxTime + ' 秒，提示 ' + KATAGO_HINT.maxVisits + ' 次访问 / ' +
+    KATAGO_HINT.maxTime + ' 秒。';
+
+  function applyRemoteUI() {
+    var tipEl = document.getElementById('levelTip');
+    if (tipEl) tipEl.textContent = REMOTE ? TIP_REMOTE : TIP_LOCAL;
+    var badge = document.querySelector('header .badge');
+    if (badge) badge.textContent = REMOTE ? 'KataGo 已连接' : 'MCTS 引擎 + 实时胜率';
+    var btn = document.getElementById('btnKatago');
+    if (btn) btn.textContent = REMOTE ? '断开' : '连接';
+    var url = document.getElementById('katagoUrl');
+    if (url && REMOTE) url.value = REMOTE;
+  }
+  applyRemoteUI();
+
+  var canvas = document.getElementById('board');
+  var ctx = canvas.getContext('2d');
+  var elStatus = document.getElementById('status');
+  var btnHint = document.getElementById('btnHint');
+  var btnTeach = document.getElementById('btnTeach');
+  var elHintStatus = document.getElementById('hintStatus');
+  var elHintLesson = document.getElementById('hintLesson');
+  var elRecordStatus = document.getElementById('recordStatus');
+  var btnPractice = document.getElementById('btnPractice');
+  var btnPlayGuess = document.getElementById('btnPlayGuess');
+
+  var panel = window.GoWinratePanel.mount(document.getElementById('wrHost'), {
+    size: N, komi: KOMI, external: true, onReplay: showReplay
+  });
+
+  function coord(i) { return i < 0 ? '停一手' : LET[i % N] + (N - Math.floor(i / N)); }
+
+  /* ---------- 棋盘 ---------- */
+  var PAD = 30, CELL = 0, SIZE = 0;
+
+  function layout() {
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.clientWidth || 640;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(w * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    SIZE = w;
+    PAD = Math.max(22, w * 0.045);
+    CELL = (SIZE - PAD * 2) / (N - 1);
+    draw();
+  }
+
+  function xy(i) { return [PAD + (i % N) * CELL, PAD + Math.floor(i / N) * CELL]; }
+
+  function draw() {
+    if (!pos) return;
+    var shown = replay === null ? pos : timeline[replay];
+    var g = ctx.createLinearGradient(0, 0, SIZE, SIZE);
+    g.addColorStop(0, '#f3e2c4'); g.addColorStop(.5, '#efd9b4'); g.addColorStop(1, '#e8cea4');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, SIZE, SIZE);
+
+    ctx.strokeStyle = 'rgba(60,40,20,.55)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (var i = 0; i < N; i++) {
+      var p = PAD + i * CELL;
+      ctx.moveTo(PAD, p); ctx.lineTo(PAD + (N - 1) * CELL, p);
+      ctx.moveTo(p, PAD); ctx.lineTo(p, PAD + (N - 1) * CELL);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(60,40,20,.75)';
+    var edge = N === 9 ? 2 : 3, middle = (N - 1) / 2;
+    var stars = N === 19 ? [edge, middle, N - 1 - edge] : [edge, N - 1 - edge];
+    stars.forEach(function (sx) {
+      stars.forEach(function (sy) {
+        ctx.beginPath();
+        ctx.arc(PAD + sx * CELL, PAD + sy * CELL, Math.max(1.8, CELL * 0.075), 0, 7);
+        ctx.fill();
+      });
+    });
+    if (N !== 19) {
+      ctx.beginPath(); ctx.arc(PAD + middle * CELL, PAD + middle * CELL, Math.max(1.8, CELL * 0.075), 0, 7);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = 'rgba(70,50,25,.5)';
+    ctx.font = Math.max(9, CELL * 0.34) + 'px Manrope, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (var k = 0; k < N; k++) {
+      ctx.fillText(LET[k], PAD + k * CELL, PAD * 0.45);
+      ctx.fillText(String(N - k), PAD * 0.45, PAD + k * CELL);
+    }
+
+    var area = replay === null && scoringAvailable() ? E.score(pos, dead).ownership : null;
+    for (var idx = 0; idx < shown.board.length; idx++) {
+      if (shown.board[idx]) stone(idx, shown.board[idx], idx === shown.lastMove);
+      if (area && dead.has(idx)) scoreMark(idx, '#bf372c', true);
+      if (area && area[idx] && !shown.board[idx]) scoreMark(idx, area[idx] === G.BLACK ? '#212529' : '#fffdf7', false);
+    }
+
+    if (replay === null) {
+      drawHints();
+      lessonMarks.forEach(function (mark) { scoreMark(mark.move, mark.color, mark.cross, CELL * .12); });
+      if (guess !== null) scoreMark(guess, '#c57413', false, CELL * .13);
+    }
+
+    if (canPlay() && hover >= 0 && pos.board[hover] === 0 && pos.toMove === humanColor) {
+      ctx.save(); ctx.globalAlpha = .3; stone(hover, humanColor, false); ctx.restore();
+    }
+  }
+
+  function scoreMark(index, color, cross, radius) {
+    if (index < 0) return;
+    var point = xy(index), x = point[0], y = point[1], r = radius || CELL * .19;
+    ctx.beginPath();
+    if (cross) {
+      ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r);
+      ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r);
+      ctx.lineWidth = 3; ctx.strokeStyle = color; ctx.stroke();
+    } else {
+      ctx.arc(x, y, r, 0, 7); ctx.fillStyle = color; ctx.fill();
+    }
+  }
+
+  function drawHints() {
+    for (var i = 0; i < hints.length; i++) {
+      var h = hints[i];
+      if (h.move < 0 || pos.board[h.move] !== 0) continue;
+      var p = xy(h.move);
+      var r = CELL * (i === 0 ? 0.42 : 0.34);
+      ctx.beginPath();
+      ctx.arc(p[0], p[1], r, 0, 7);
+      ctx.strokeStyle = i === 0 ? 'rgba(36,86,184,.95)' : 'rgba(36,86,184,.42)';
+      ctx.lineWidth = i === 0 ? 2.4 : 1.4;
+      ctx.stroke();
+      ctx.fillStyle = i === 0 ? '#2456b8' : 'rgba(36,86,184,.6)';
+      ctx.font = (i === 0 ? '600 ' : '') + Math.max(9, CELL * 0.34) + 'px Manrope, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(i + 1), p[0], p[1]);
+    }
+  }
+
+  function stone(idx, color, isLast) {
+    var p = xy(idx), r = CELL * 0.475;
+    var grad = ctx.createRadialGradient(p[0] - r * .35, p[1] - r * .4, r * .15, p[0], p[1], r);
+    if (color === G.BLACK) { grad.addColorStop(0, '#5a5a5a'); grad.addColorStop(1, '#0d0d0d'); }
+    else { grad.addColorStop(0, '#fff'); grad.addColorStop(1, '#d6d6d6'); }
+    ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 7); ctx.fillStyle = grad; ctx.fill();
+    ctx.strokeStyle = color === G.BLACK ? 'rgba(0,0,0,.6)' : 'rgba(150,150,150,.75)';
+    ctx.lineWidth = 1; ctx.stroke();
+    if (isLast) {
+      ctx.beginPath(); ctx.arc(p[0], p[1], r * .32, 0, 7);
+      ctx.fillStyle = color === G.BLACK ? '#ff6b5e' : '#d0342c'; ctx.fill();
+    }
+  }
+
+  /* ---------- 分析 ---------- */
+  /* ---------- 分析（带代次，可被悔棋/新局取消） ---------- */
+  var gen = 0;
+
+  function showHintStatus(message, lesson) {
+    btnHint.textContent = hintPending ? '取消提示' : hints.length ? '关闭提示' : '提示';
+    if (elHintStatus.textContent !== message) elHintStatus.textContent = message;
+    if (elHintLesson.textContent !== (lesson || '')) elHintLesson.textContent = lesson || '';
+  }
+
+  function cancelAnalysis(keepGuess) {
+    gen++;
+    thinking = false;
+    hintPending = false;
+    if (hintRequest) hintRequest.abort();
+    hintRequest = null;
+    hints = [];
+    lessonMarks = [];
+    if (!keepGuess) {
+      guess = null;
+      btnPlayGuess.hidden = true;
+    }
+    showHintStatus('');
+  }
+
+  function analyze(budget, done, extra, progress) {
+    var my = ++gen;
+    thinking = true;
+    updateStatus();
+    var opts = { timeMs: budget };
+    if (extra) for (var k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) opts[k] = extra[k];
+    var an = G.createAnalysis(G.clonePosition(pos), opts);
+    var t0 = performance.now();
+
+    (function step() {
+      if (my !== gen) return;                 // 已被取消
+      var res;
+      try {
+        res = an.step(12);
+        panel.progress(res, pos.moves.length);
+      } catch (e) {
+        // 分析异常不能让界面卡死
+        if (my === gen) {
+          var wasHint = hintPending;
+          cancelAnalysis();
+          updateStatus();
+          if (wasHint) showHintStatus('分析失败，请重试。');
+        }
+        return;
+      }
+      var elapsed = performance.now() - t0;
+      if (progress) progress(elapsed);
+      if (elapsed >= budget) {
+        panel.apply(res, pos.moves.length, true);
+        evaluations[pos.moves.length] = { blackWinrate: res.blackWinrate, scoreLead: res.scoreLead, candidates: [] };
+        paintTimeline();
+        saveGame();
+        thinking = false;
+        updateStatus();
+        if (my === gen && done) done(res);
+        return;
+      }
+      setTimeout(step, 0);
+    })();
+  }
+
+  function updateStatus() {
+    if (replay !== null) {
+      var frame = timeline[replay];
+      elStatus.textContent = '复盘 · 第 ' + replay + ' 手 · ' + (frame.toMove === G.BLACK ? '黑方' : '白方') + '行棋';
+      return;
+    }
+    if (gameResult) {
+      elStatus.textContent = '终局 · ' + resultText(gameResult);
+      return;
+    }
+    if (pos.passes >= 2) {
+      elStatus.textContent = '双方停一手 · 请确认死棋并数子';
+      return;
+    }
+    if (thinking) {
+      elStatus.innerHTML = pos.toMove === humanColor ? '<b>分析中…</b>' : '<b>AI 思考中…</b>';
+      return;
+    }
+    var side = pos.toMove === G.BLACK ? '黑' : '白';
+    var tag = '';
+    if (handicap >= 1) {
+      var mine = humanColor === G.BLACK;   // 让子归黑方
+      var label = handicap === 1 ? '让 1 子（不贴目）' : '让 ' + handicap + ' 子';
+      tag = (mine ? '对方' + label : '你' + label) + ' · ';
+    }
+    elStatus.innerHTML = tag + '轮到 <b>' + side + '棋</b>（' +
+      (pos.toMove === humanColor ? '你' : 'AI') + '）· 第 ' + pos.moves.length + ' 手';
+  }
+
+  /* ---------- 流程 ---------- */
+  function analyzeHumanTurn(budget) {
+    if (!canPlay()) return;
+    analyze(budget, function () {
+      prepareTeaching();
+    });
+  }
+
+  function humanMove(idx) {
+    if (!canPlay() || pos.toMove !== humanColor) return;
+    var r = G.play(pos, idx, humanColor);
+    if (!r.ok) {
+      elStatus.textContent = r.reason === 'suicide' ? '这里不能下（自杀）'
+        : r.reason === 'superko' ? '全局同形禁止' : '不能落子';
+      setTimeout(updateStatus, 1200);
+      return;
+    }
+    cancelAnalysis();                 // 局面变化时取消旧分析和提示
+    commitPosition();
+    if (canPlay()) analyze(500, aiTurn, { blunder: 0 });
+  }
+
+  function rankedMoves(move, candidates) {
+    var ranked = [move];
+    (candidates || []).forEach(function (candidate) {
+      if (ranked.indexOf(candidate.move) < 0) ranked.push(candidate.move);
+    });
+    return ranked.filter(function (mv) { return Number.isInteger(mv) && mv >= -1 && mv < N * N; });
+  }
+
+  function playAiMove(move, candidates) {
+    var played = rankedMoves(move, candidates).find(function (mv) {
+      return G.play(pos, mv, pos.toMove).ok;
+    });
+    if (played === undefined) {
+      var sc = G.makeScratch(N);
+      for (var i = 0; i < N * N; i++) {
+        if (pos.board[i] === 0 && G.capturesAt(pos.board, N, i, pos.toMove, sc) >= 0 &&
+            G.play(pos, i, pos.toMove).ok) {
+          played = i;
+          break;
+        }
+      }
+      if (played === undefined) {
+        played = -1;
+        G.play(pos, played, pos.toMove);
+      }
+    }
+    commitPosition();
+    analyzeHumanTurn(600);
+    return played;
+  }
+
+  function aiTurn() {
+    if (!canPlay() || pos.toMove === humanColor) { updateStatus(); return; }
+
+    // 接了 KataGo：直接问它（访问数即档位），失败自动回落到本地引擎
+    if (REMOTE) {
+      var my = ++gen;
+      thinking = true;
+      updateStatus();
+      remoteAnalyze(KATAGO_LEVELS[level], function (err, j) {
+        if (my !== gen) return;
+        thinking = false;
+        if (err) {
+          flash('KataGo 不可用，改用本地引擎');
+          aiTurnLocal();
+          return;
+        }
+        var played = playAiMove(j.move, j.candidates);
+        flash('KataGo 落子 ' + coord(played));
+      });
+      return;
+    }
+    aiTurnLocal();
+  }
+
+  function aiTurnLocal() {
+    if (!canPlay() || pos.toMove === humanColor) { updateStatus(); return; }
+    analyze(G.LEVELS[level].timeMs, function (res) {
+      playAiMove(res.bestMove, res.candidates);
+    }, { level: level });
+  }
+
+  /* ---------- 交互 ---------- */
+  function hitTest(e) {
+    var rect = canvas.getBoundingClientRect();
+    var x = (e.clientX - rect.left) * (SIZE / rect.width);
+    var y = (e.clientY - rect.top) * (SIZE / rect.height);
+    var cx = Math.round((x - PAD) / CELL), cy = Math.round((y - PAD) / CELL);
+    if (cx < 0 || cy < 0 || cx >= N || cy >= N) return -1;
+    var dx = x - (PAD + cx * CELL), dy = y - (PAD + cy * CELL);
+    return Math.sqrt(dx * dx + dy * dy) > CELL * 0.62 ? -1 : cy * N + cx;
+  }
+
+  canvas.addEventListener('mousemove', function (e) {
+    var i = hitTest(e);
+    if (i !== hover) { hover = i; draw(); }
+  });
+  canvas.addEventListener('mouseleave', function () { hover = -1; draw(); });
+  canvas.addEventListener('click', function (e) {
+    var i = hitTest(e);
+    if (i < 0 || replay !== null) return;
+    if (scoringAvailable() && !gameResult) markDead(i);
+    else if (canPlay() && teaching && practice && !hints.length) tryGuess(i);
+    else humanMove(i);
+  });
+
+  document.getElementById('btnNew').addEventListener('click', reset);
+
+  document.getElementById('btnPass').addEventListener('click', function () {
+    humanMove(-1);
+  });
+
+  document.getElementById('btnUndo').addEventListener('click', undo);
+
+  function undo() {
+    if (replay !== null || timeline.length < 2 || gameResult) { flash('当前没有可悔的棋'); return; }
+
+    cancelAnalysis();                 // 思考中也允许悔棋
+    var previous = timeline.length - 2;
+    while (previous > 0 && timeline[previous].toMove !== humanColor) previous--;
+    timeline.length = previous + 1;
+    evaluations.length = timeline.length;
+    pos = G.clonePosition(timeline[previous]);
+    dead.clear();
+    hover = -1;
+    refreshPosition();
+    saveGame();
+    resumeTurn();
+  }
+
+  function flash(msg) {
+    elStatus.textContent = msg;
+    setTimeout(updateStatus, 1200);
+  }
+
+  document.getElementById('turnSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    // 让子与执子相互独立：让子永远是给黑方的，你执黑就是"对方让你"，执白就是"你让对方"
+    humanColor = Number(b.dataset.color);
+    Array.prototype.forEach.call(this.children, function (x) {
+      x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+    });
+    reset();
+  });
+
+  btnHint.addEventListener('click', function () {
+    if (mode !== 'ai') return;
+    if (hintPending) {                       // 再点一次 → 取消
+      cancelAnalysis();
+      draw();
+      updateStatus();
+      showHintStatus(teaching ? '已取消本回合提示，下回合继续。' : '已取消提示。');
+      return;
+    }
+    if (hints.length) {
+      clearHint();
+      showHintStatus(teaching ? '已收起本回合提示，下回合继续。' : '');
+      return;
+    }
+    if (!canPlay()) { showHintStatus('当前局面已暂停对弈。'); return; }
+    if (pos.toMove !== humanColor) { showHintStatus('等 AI 落子后再看提示。'); return; }
+    startHint();
+  });
+
+  function startHint() {
+    if (mode !== 'ai' || hintPending || !canPlay() || pos.toMove !== humanColor) return;
+    cancelAnalysis(true);
+    draw();
+    updateStatus();
+    if (REMOTE) {
+      var my = gen;
+      hintPending = true;
+      hintRequest = new AbortController();
+      showHintStatus('KataGo 分析中…（搜索预算 ' + KATAGO_HINT.maxTime + ' 秒）');
+      remoteAnalyze({ maxVisits: KATAGO_HINT.maxVisits, maxTime: KATAGO_HINT.maxTime,
+        signal: hintRequest.signal }, function (err, j) {
+        if (my !== gen) return;
+        hintRequest = null;
+        hintPending = false;
+        if (err) {
+          localHint('KataGo 不可用。');
+          return;
+        }
+        showHintResult('KataGo', j.move, j.candidates, j.winrate);
+      });
+      return;
+    }
+    localHint();
+  }
+
+  function prepareTeaching() {
+    if (!teaching || mode !== 'ai' || !canPlay() || pos.toMove !== humanColor || hintPending) return;
+    if (practice) showHintStatus('先在棋盘上猜一手，再看推荐与应手。');
+    else startHint();
+  }
+
+  function tryGuess(index) {
+    if (hintPending || pos.toMove !== humanColor) return;
+    var checked = G.play(G.clonePosition(pos), index, humanColor);
+    if (!checked.ok) { showHintStatus('这里不能落子，请换一个点。'); return; }
+    guess = index;
+    btnPlayGuess.hidden = false;
+    startHint();
+  }
+
+  function findPracticeReply(next, message, explanation) {
+    if (next.passes >= 2) return;
+    var generation = gen;
+    var search = G.createAnalysis(next, { timeMs: 450, children: 14, blunder: 0 });
+    var start = performance.now();
+    function step() {
+      if (generation !== gen || guess === null || !practice || replay !== null) return;
+      var result = search.step(12);
+      if (performance.now() - start < 450) { setTimeout(step, 0); return; }
+      var move = rankedMoves(result.bestMove, result.candidates).find(function (candidate) {
+        return G.play(G.clonePosition(next), candidate, next.toMove).ok;
+      });
+      if (move !== undefined) {
+        showHintStatus(message, explanation + ' 如果走推荐点，对方可能应 ' + coord(move) + '。');
+      }
+    }
+    setTimeout(step, 0);
+  }
+
+  function readGroup(board, first, near, seen) {
+    var color = board[first];
+    var stones = [first], liberties = new Set();
+    seen.add(first);
+    for (var i = 0; i < stones.length; i++) {
+      var adjacent = near[stones[i]];
+      for (var j = 0; j < adjacent.length; j++) {
+        var point = adjacent[j];
+        if (!board[point]) liberties.add(point);
+        if (board[point] === color && !seen.has(point)) {
+          seen.add(point);
+          stones.push(point);
+        }
+      }
+    }
+    return liberties.size;
+  }
+
+  function explainHint(first, count) {
+    if (first.move < 0) return pos.passes ? '对方上一手已停，再停一手就进入数子。' : '如果对方也停一手，双方就进入数子。';
+    if (first.captured) return '这手能提掉对方 ' + first.captured + ' 子。';
+    var near = G.neighbors(N), seen = new Set();
+    var groups = 0, inAtari = false;
+    for (var i = 0; i < near[first.move].length; i++) {
+      var point = near[first.move][i];
+      if (pos.board[point] !== pos.toMove || seen.has(point)) continue;
+      groups++;
+      if (readGroup(pos.board, point, near, seen) === 1) inAtari = true;
+    }
+    if (inAtari) {
+      var liberties = readGroup(first.board, first.move, near, new Set());
+      if (liberties > 1) return '这手接应被打吃的己方棋块，落子后连成的棋块有 ' + liberties + ' 气。';
+    }
+    if (groups > 1) return '这手能把 ' + groups + ' 块相邻的己方棋连起来。';
+
+    var x = first.move % N, y = Math.floor(first.move / N);
+    var dx = Math.min(x, N - 1 - x), dy = Math.min(y, N - 1 - y);
+    if (pos.moves.length < 8) {
+      if (dx <= 4 && dy <= 4 && Math.min(dx, dy) >= 2) {
+        return '这手落在角部。布局时可以借棋盘的两条边围地。';
+      }
+      if (Math.min(dx, dy) <= 3) {
+        return '这手落在边上。可以比较边上的发展空间，以及先占空角能围多少地。';
+      }
+      return '这手向中腹发展。可以和占角、占边的候选比较，想想各自较容易围住哪里。';
+    }
+    return count > 1 ? '可以对比棋盘上的其他编号，看看各处哪块棋更急着补。' : '落子前可以先数相邻棋块的气，再找需要补的断点。';
+  }
+
+  function markLesson(first) {
+    if (first.move < 0) return '';
+    if (first.captured) {
+      pos.board.forEach(function (color, move) {
+        if (color === 3 - pos.toMove && !first.board[move]) lessonMarks.push({ move: move, color: '#bf372c', cross: true });
+      });
+      return '红叉标出可提掉的棋子。';
+    }
+    var near = G.neighbors(N);
+    var group = E.group(first.board, N, first.move);
+    if (group.length < 2) return '';
+    var liberties = new Set();
+    group.forEach(function (stone) {
+      near[stone].forEach(function (point) { if (!first.board[point]) liberties.add(point); });
+    });
+    liberties.forEach(function (move) { lessonMarks.push({ move: move, color: '#24844f', cross: false }); });
+    return '绿点标出落子后相连棋块的气。';
+  }
+
+  function showHintResult(engine, bestMove, candidates, blackWinrate, detail) {
+    var ranked = rankedMoves(bestMove, candidates), first;
+    for (var i = 0; i < ranked.length && hints.length < 3; i++) {
+      var move = ranked[i];
+      if (move < 0 && first) continue;
+      var next = G.clonePosition(pos);
+      var result = G.play(next, move, pos.toMove);
+      if (!result.ok) continue;
+      if (!first) first = { move: move, captured: result.captured, board: next.board, position: next };
+      hints.push({ move: move });
+      if (move < 0) break;
+    }
+    if (!first) { showHintStatus('没有可推荐的落点。'); return; }
+    var info = [];
+    if (Number.isFinite(blackWinrate)) {
+      var blackToMove = pos.toMove === G.BLACK;
+      var winrate = blackToMove ? blackWinrate : 1 - blackWinrate;
+      info.push((blackToMove ? '黑' : '白') + '方当前估计胜率 ' + (winrate * 100).toFixed(1) + '%');
+    }
+    if (detail) info.push(detail);
+    var lesson = teaching ? explainHint(first, hints.length) : '';
+    if (guess !== null) {
+      lesson = '你选 ' + coord(guess) + (guess === first.move ? '，与首选一致。' : '，AI 首选 ' + coord(first.move) + '。') + ' ' + lesson + markLesson(first);
+    }
+    draw();
+    var action = engine === 'KataGo' ? ' 建议 ' : '建议 ';
+    var message = engine + action + coord(first.move) + (info.length ? '（' + info.join('，') + '）' : '');
+    showHintStatus(message, lesson);
+    if (guess !== null) findPracticeReply(first.position, message, lesson);
+  }
+
+  function localHint(prefix) {
+    hintPending = true;
+    function progress(elapsed) {
+      showHintStatus((prefix || '') + '本地引擎深度分析中… ' + Math.floor(elapsed / 1000) + ' 秒');
+    }
+    progress(0);
+    analyze(HINT_MS, function (res) {
+      hintPending = false;
+      showHintResult('本地引擎', res.bestMove, res.candidates, res.blackWinrate,
+        (res.elapsed / 1000).toFixed(1) + 's / ' + res.visits + ' 次模拟');
+    }, { level: 'master', children: 36, replyWidth: 8, blunder: 0 }, progress);
+  }
+
+  function clearHint() {
+    if (hintPending) cancelAnalysis();
+    hints = [];
+    guess = null;
+    lessonMarks = [];
+    btnPlayGuess.hidden = true;
+    draw();
+    updateStatus();
+    showHintStatus('');
+  }
+
+  btnTeach.addEventListener('click', function () {
+    if (mode !== 'ai' || !canPlay()) return;
+    teaching = !teaching;
+    btnTeach.setAttribute('aria-pressed', String(teaching));
+    if (!teaching) { practice = false; clearHint(); }
+    else if (pos.toMove === humanColor) prepareTeaching();
+    else showHintStatus('轮到你时会自动分析。');
+    updateControls();
+    saveGame();
+  });
+
+  btnPractice.addEventListener('click', function () {
+    practice = !practice;
+    clearHint();
+    updateControls();
+    prepareTeaching();
+    saveGame();
+  });
+
+  btnPlayGuess.addEventListener('click', function () {
+    if (guess !== null) humanMove(guess);
+  });
+
+  function applyMode() {
+    panel.setMode(mode);
+    if (mode !== 'ai') {
+      teaching = false;
+      practice = false;
+      btnTeach.setAttribute('aria-pressed', 'false');
+      clearHint();
+    }
+    updateControls();
+    saveGame();
+  }
+
+  document.getElementById('modeSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    mode = b.dataset.mode;
+    Array.prototype.forEach.call(this.children, function (x) {
+      x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+    });
+    applyMode();
+  });
+
+  document.getElementById('btnKatago').addEventListener('click', function () {
+    if (REMOTE) {                       // 断开 → 回本地
+      REMOTE = '';
+      applyRemoteUI();
+      cancelAnalysis();
+      resumeTurn();
+      flash('已断开 KataGo，改用本地引擎');
+      return;
+    }
+    var url = (document.getElementById('katagoUrl').value || '').trim().replace(/\/+$/, '');
+    if (!url) { flash('先填 KataGo 服务地址'); return; }
+
+    flash('正在连接 ' + url + ' …');
+    fetch(url + '/health')
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (j) {
+        if (!j || !j.ok) throw new Error('health 返回异常');
+        REMOTE = url;
+        applyRemoteUI();
+        cancelAnalysis();
+        resumeTurn();
+        flash('已连接 KataGo，五档都按访问数分档');
+      })
+      .catch(function (e) {
+        REMOTE = '';
+        applyRemoteUI();
+        flash('连不上 KataGo（' + e.message + '），仍用本地引擎');
+      });
+  });
+
+  document.getElementById('handicapSel').addEventListener('change', function () {
+    handicap = Number(this.value) || 0;
+    reset();
+  });
+
+  document.getElementById('sizeSel').addEventListener('change', function () {
+    N = Number(this.value);
+    reset();
+  });
+
+  document.getElementById('levelSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    level = b.dataset.level;
+    Array.prototype.forEach.call(this.children, function (x) {
+      x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+    });
+    saveGame();
+  });
+
+  window.addEventListener('resize', layout);
+
+  /* ---------- 复盘、存档 ---------- */
+  function canPlay() {
+    return replay === null && !gameResult && pos.passes < 2;
+  }
+
+  function paintTimeline() {
+    panel.setTimeline(evaluations.map(function (stats) { return stats.blackWinrate; }), replay === null ? timeline.length - 1 : replay);
+  }
+
+  function updateControls() {
+    var reviewing = replay !== null;
+    var playing = canPlay();
+    document.getElementById('btnPass').disabled = !playing || pos.toMove !== humanColor;
+    document.getElementById('btnResign').disabled = !playing;
+    document.getElementById('btnUndo').disabled = reviewing || timeline.length < 2 || !!gameResult;
+    btnHint.disabled = !playing || mode !== 'ai';
+    btnTeach.disabled = !playing || mode !== 'ai';
+    btnTeach.setAttribute('aria-pressed', String(teaching));
+    document.getElementById('practiceControls').hidden = !playing || !teaching || mode !== 'ai';
+    btnPractice.setAttribute('aria-pressed', String(practice));
+    var total = timeline.length - 1;
+    var shown = reviewing ? replay : total;
+    document.getElementById('btnPrev').disabled = shown <= 0;
+    document.getElementById('btnNext').disabled = !reviewing || shown >= total;
+    document.getElementById('btnLive').hidden = !reviewing || imported;
+    document.getElementById('replayPosition').textContent = (reviewing ? '复盘' : '当前对局') + ' · 第 ' + shown + ' / ' + total + ' 手' +
+      (reviewing && shown === total && gameResult ? ' · ' + resultText(gameResult) : '');
+    document.getElementById('btnExport').disabled = !timeline.length;
+  }
+
+  function refreshPosition() {
+    var shown = replay === null ? pos : timeline[replay];
+    document.getElementById('boardMeta').textContent = N + ' 路 · 中国规则 · 贴目 ' + shown.komi;
+    panel.setSize(N);
+    panel.setKomi(shown.komi);
+    panel.apply(evaluations[shown.moves.length], shown.moves.length, false);
+    paintTimeline();
+    updateControls();
+    updateEnding();
+    draw();
+    updateStatus();
+  }
+
+  function commitPosition() {
+    timeline.push(G.clonePosition(pos));
+    evaluations.push(G.estimate(pos));
+    refreshPosition();
+    saveGame();
+  }
+
+  function showReplay(moveNo) {
+    if (timeline.length < 2) return;
+    cancelAnalysis();
+    hover = -1;
+    replay = Math.max(0, Math.min(timeline.length - 1, moveNo));
+    refreshPosition();
+  }
+
+  document.getElementById('btnPrev').addEventListener('click', function () {
+    showReplay((replay === null ? timeline.length - 1 : replay) - 1);
+  });
+  document.getElementById('btnNext').addEventListener('click', function () {
+    if (replay !== null) showReplay(replay + 1);
+  });
+  document.getElementById('btnLive').addEventListener('click', function () {
+    if (imported) return;
+    replay = null;
+    refreshPosition();
+    resumeTurn();
+  });
+
+  function gameRecord() {
+    var start = timeline[0], setup = [];
+    start.board.forEach(function (color, move) { if (color) setup.push({ color: color, move: move }); });
+    return {
+      size: N, komi: pos.komi, handicap: handicap, setup: setup, toMove: start.toMove, result: gameResult,
+      moves: pos.moves.map(function (m) { return { color: m.color, move: m.pass ? -1 : m.y * N + m.x }; })
+    };
+  }
+
+  function decodeRecord(text) {
+    var record = R.parse(text);
+    if (record.moves.length > 1500) throw new Error('请使用不超过 1500 手的单局棋谱。');
+    var state = G.newPosition(record.size, record.komi);
+    record.setup.forEach(function (stone) { state.board[stone.move] = stone.color; });
+    state.toMove = record.toMove;
+    state.hash = G.boardHash(state.board, record.size, state.toMove);
+    state.history = [state.hash + '|' + state.toMove];
+    var frames = [G.clonePosition(state)];
+    record.moves.forEach(function (move, index) {
+      if (!G.play(state, move.move, move.color).ok) throw new Error('第 ' + (index + 1) + ' 手无法按当前规则落子。');
+      frames.push(G.clonePosition(state));
+    });
+    return { record: record, position: state, frames: frames };
+  }
+
+  function openRecord(decoded, reviewOnly) {
+    cancelAnalysis();
+    N = decoded.record.size;
+    handicap = decoded.record.handicap;
+    gameResult = decoded.record.result;
+    timeline = decoded.frames;
+    pos = decoded.position;
+    evaluations = timeline.map(function (frame) { return G.estimate(frame); });
+    replay = reviewOnly ? 0 : null;
+    imported = reviewOnly;
+    dead.clear();
+    hover = -1;
+    syncSettings();
+    layout();
+    refreshPosition();
+  }
+
+  var recordFile = document.getElementById('recordFile');
+  document.getElementById('btnImport').addEventListener('click', function () { recordFile.click(); });
+  recordFile.addEventListener('change', async function () {
+    var file = this.files[0];
+    this.value = '';
+    if (!file) return;
+    try {
+      if (file.size > 1024 * 1024) throw new Error('请选择不超过 1 MB 的单局棋谱。');
+      openRecord(decodeRecord(await file.text()), true);
+      elRecordStatus.textContent = '已导入 · 使用上一手、下一手或点击胜率曲线复盘。';
+    } catch (e) { elRecordStatus.textContent = '导入失败 · ' + e.message; }
+  });
+
+  document.getElementById('btnExport').addEventListener('click', function () {
+    var blob = new Blob([R.stringify(gameRecord())], { type: 'application/x-go-sgf;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = '围棋-' + N + '路-' + pos.moves.length + '手.sgf';
+    link.click();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  });
+
+  function saveGame() {
+    if (imported || !timeline.length) return;
+    try {
+      localStorage.setItem(saveKey, JSON.stringify({ sgf: R.stringify(gameRecord()), color: humanColor,
+        level: level, teaching: teaching, practice: practice, dead: Array.from(dead),
+        evaluations: evaluations.map(function (stats) { return [stats.blackWinrate, stats.scoreLead]; }) }));
+    } catch (e) { /* browser may restrict storage for local files */ }
+  }
+
+  function restoreGame() {
+    try {
+      var saved = JSON.parse(localStorage.getItem(saveKey));
+      if (!saved || !saved.sgf) return false;
+      var decoded = decodeRecord(saved.sgf);
+      humanColor = saved.color === G.WHITE ? G.WHITE : G.BLACK;
+      if (Object.hasOwn(G.LEVELS, saved.level)) level = saved.level;
+      teaching = saved.teaching === true;
+      practice = teaching && saved.practice === true;
+      openRecord(decoded, false);
+      if (Array.isArray(saved.evaluations) && saved.evaluations.length === timeline.length) {
+        saved.evaluations.forEach(function (value, i) {
+          if (Array.isArray(value) && Number.isFinite(value[0]) && value[0] >= 0 && value[0] <= 1 && Number.isFinite(value[1])) {
+            evaluations[i] = { blackWinrate: value[0], scoreLead: value[1], candidates: [] };
+          }
+        });
+      }
+      if (pos.passes >= 2 && Array.isArray(saved.dead)) {
+        dead = new Set(saved.dead.filter(function (idx) { return Number.isInteger(idx) && pos.board[idx]; }));
+      }
+      refreshPosition();
+      if (timeline.length > 1) elRecordStatus.textContent = '已恢复上次的对局。';
+      resumeTurn();
+      return true;
+    } catch (e) { return false; }
+  }
+
+  /* ---------- 终局 ---------- */
+  function resultText(result) {
+    if (result === '0' || result === 'Draw') return '和棋';
+    var win = /^([BW])\+(.+)?$/i.exec(result);
+    if (!win) return result;
+    var side = win[1].toUpperCase() === 'B' ? '黑方' : '白方';
+    if (/^(R|Resign)$/i.test(win[2] || '')) return side + '胜（对方认输）';
+    if (win[2] && Number.isFinite(Number(win[2]))) return side + '胜 ' + win[2] + ' 目';
+    return side + '胜';
+  }
+
+  function scoringAvailable() {
+    return pos.passes >= 2 && (!gameResult || !/\+R$/i.test(gameResult));
+  }
+
+  function updateEnding() {
+    var scoring = scoringAvailable();
+    var card = document.getElementById('endingCard');
+    card.hidden = replay !== null || (!scoring && !gameResult);
+    if (card.hidden) return;
+    document.getElementById('scoreGuide').hidden = !scoring || !!gameResult;
+    document.getElementById('scoreKey').hidden = !scoring;
+    document.getElementById('scoreActions').hidden = !scoring || !!gameResult;
+    var result = scoring ? E.score(pos, dead) : null;
+    document.getElementById('scoreStatus').textContent = (gameResult ? resultText(gameResult) : '数子预览') +
+      (result ? ' · 黑 ' + result.black + ' 目 / 白 ' + result.white + ' 目（含贴目）' : '');
+  }
+
+  function markDead(index) {
+    var group = E.group(pos.board, N, index);
+    if (!group.length) return;
+    var remove = dead.has(index);
+    group.forEach(function (stone) { if (remove) dead.delete(stone); else dead.add(stone); });
+    updateEnding();
+    draw();
+    saveGame();
+  }
+
+  document.getElementById('btnClearDead').addEventListener('click', function () {
+    if (!scoringAvailable() || gameResult) return;
+    dead.clear();
+    updateEnding();
+    draw();
+    saveGame();
+  });
+  document.getElementById('btnScore').addEventListener('click', function () {
+    if (!scoringAvailable() || gameResult) return;
+    var diff = E.score(pos, dead).diff;
+    gameResult = diff === 0 ? '0' : (diff > 0 ? 'B+' : 'W+') + Math.abs(diff);
+    refreshPosition();
+    saveGame();
+  });
+  document.getElementById('btnResign').addEventListener('click', function () {
+    if (!canPlay() || !window.confirm('确定认输并结束本局？')) return;
+    cancelAnalysis();
+    gameResult = (humanColor === G.BLACK ? 'W' : 'B') + '+R';
+    refreshPosition();
+    saveGame();
+  });
+
+  /* ---------- 启动 ---------- */
+  function initialPosition() {
+    // 让子给黑方，且与玩家执哪方独立。
+    return handicap >= 1 ? G.handicapPosition(N, handicap) : G.newPosition(N, KOMI);
+  }
+
+  function reset() {
+    cancelAnalysis();
+    replay = null;
+    imported = false;
+    gameResult = null;
+    dead.clear();
+    elRecordStatus.textContent = '';
+    hover = -1;
+    pos = initialPosition();
+    timeline = [G.clonePosition(pos)];
+    evaluations = [G.estimate(pos)];
+    syncSettings();
+    panel.reset();
+    layout();
+    refreshPosition();
+    saveGame();
+    resumeTurn();
+  }
+
+  function resumeTurn() {
+    if (!canPlay()) return;
+    if (pos.toMove !== humanColor) aiTurn();
+    else analyzeHumanTurn(500);
+  }
+
+  function syncSettings() {
+    document.getElementById('sizeSel').value = String(N);
+    document.getElementById('handicapSel').value = String(handicap);
+    Array.prototype.forEach.call(document.getElementById('turnSeg').children, function (b) {
+      b.setAttribute('aria-pressed', Number(b.dataset.color) === humanColor ? 'true' : 'false');
+    });
+    Array.prototype.forEach.call(document.getElementById('levelSeg').children, function (b) {
+      b.setAttribute('aria-pressed', b.dataset.level === level ? 'true' : 'false');
+    });
+  }
+
+  if (DBG) {
+    window.__goState = function () {
+      var b = 0, w = 0;
+      for (var i = 0; i < pos.board.length; i++) {
+        if (pos.board[i] === 1) b++; else if (pos.board[i] === 2) w++;
+      }
+      return {
+        black: b, white: w, toMove: pos.toMove, komi: pos.komi,
+        humanColor: humanColor, moves: pos.moves.length, handicap: handicap, passes: pos.passes,
+        size: N, replay: replay, result: gameResult, dead: Array.from(dead), guess: guess
+      };
+    };
+  }
+
+  if (!restoreGame()) reset();
+})();
+</script>
+</body>
+</html>
