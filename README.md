@@ -1,82 +1,80 @@
-# 围棋 · AI 对局与实时胜率
+# Weiqi · AI opponent with a live win-rate chart
 
-在浏览器里下一局围棋：本地 AI 对手、实时胜率曲线、教学模式、SGF 棋谱和终局数子。纯前端，零运行时依赖，可离线打开，不发任何外部请求。
+Play Go in the browser: a local AI opponent, a live win-rate curve, teaching hints, SGF records and endgame scoring. Pure front end, no runtime dependencies, works offline and makes no network requests.
 
-**[在线试玩](https://hhxx6666.github.io/weiqi-ai/)** · [MIT](LICENSE) · Node.js 20+（仅开发时需要）
+[简体中文](README.zh-CN.md) · **[Play the demo](https://hhxx6666.github.io/weiqi-ai/)** · [MIT](LICENSE) · Node.js 20+ (development only)
 
-A zero-dependency Go (weiqi) web app running entirely in the browser: an MCTS opponent with win-rate evaluation, a live win-rate chart, teaching hints, SGF import/export, and Chinese-rule scoring — no server, no build step, no network calls.
-
-## 功能
+## Features
 
 | | |
 | --- | --- |
-| **对弈** | 9 / 13 / 19 路棋盘，落子后 AI 自动应手，可切换让 AI 执黑先行 |
-| **胜率** | 实时胜率曲线，点击曲线上的记录跳到对应手数 |
-| **教学** | 开启后每轮自动分析，标出推荐落点并给出简短说明；练习模式先让你试选一手，再对比自己选点、AI 首选和对手可能的应手 |
-| **终局** | 双方连续停一手后进入数子，点击棋子可标记或恢复死棋，按中国规则数子并计入白方贴目；对局中也可认输 |
-| **棋谱** | SGF 导入导出，逐手复盘；导入读取主线，遇到分支沿第一条变化读取 |
-| **续局** | 对局自动保存到浏览器，回到同一地址可继续上次对局 |
-| **增强** | 可选接入 KataGo，把棋力从业余水平提到职业水平 |
+| **Play** | 9×9, 13×13 and 19×19 boards. The AI answers every move, and you can hand it Black so it opens the game |
+| **Win rate** | A live win-rate chart; click a point on the curve to jump to that move |
+| **Teaching** | With teaching on, every turn is analysed and the recommended point is marked with a short explanation. Practice mode lets you guess first, then compares your pick with the AI's first choice and the opponent's likely reply |
+| **Endgame** | After both sides pass twice in a row you move to counting. Click stones to mark or unmark dead groups, then confirm the result — Chinese area scoring with White's komi. Resigning works mid-game too |
+| **Records** | SGF import and export, plus step-by-step review. Import follows the main line, and on a branch it takes the first variation |
+| **Resume** | The game autosaves in the browser; return to the same URL to pick it up again |
+| **Boost** | Optionally connect KataGo to lift the strength from amateur to professional |
 
-## 快速开始
+## Quick start
 
-**直接试玩**：下载仓库，用浏览器打开根目录的 `index.html`。它是单文件版本，脚本和样式全部内联，不需要服务器。
+**Just play**: download the repository and open `index.html` in a browser. It is a single file with all scripts and styles inlined — no server needed.
 
-**本地开发**：
+**Develop locally**:
 
 ```sh
 cd src
 npm start
 ```
 
-终端会打印地址，默认 `http://127.0.0.1:8080/`，端口被占用时自动换一个。项目只用 Node.js 内置模块，不需要 `npm install`。
+The terminal prints the address, `http://127.0.0.1:8080/` by default, and picks another port if that one is taken. The project only uses Node.js built-in modules, so there is no `npm install`.
 
-## 目录结构
+## Layout
 
 ```text
-index.html            单文件构建产物，也是 GitHub Pages 的入口（勿直接编辑）
-src/index.html        开发入口
-src/go-engine.js      规则内核 + MCTS + 胜率评估，浏览器挂 window.GoEngine，Node 用 require
-src/winrate-panel.js  胜率面板组件，mount() 挂到任意容器
-src/go-record.js      SGF 棋谱读写
-src/go-ending.js      死棋标记与终局数子
-src/katago-bridge.js  KataGo 分析桥接（可选）
-src/katago-server.js  KataGo 本地 HTTP 服务（可选）
-src/mock-katago.js    桥接测试用的模拟进程
-src/preview-server.cjs 本地预览服务器
-src/build-standalone.cjs 把 src/ 打成根目录的单文件页面
-src/test-*.js         测试脚本
+index.html            Single-file build, also the GitHub Pages entry point (do not edit)
+src/index.html        Development entry point
+src/go-engine.js      Rules, MCTS and win-rate evaluation. window.GoEngine in the browser, require in Node
+src/winrate-panel.js  Win-rate panel; mount() it into any container
+src/go-record.js      SGF read and write
+src/go-ending.js      Dead-stone marking and endgame counting
+src/katago-bridge.js  Optional KataGo analysis bridge
+src/katago-server.js  Optional local KataGo HTTP service
+src/mock-katago.js    Simulated process used by the bridge tests
+src/preview-server.cjs   Local preview server
+src/build-standalone.cjs Bundles src/ into the single-file page at the repository root
+src/test-*.js         Test scripts
 ```
 
-`index.html` 是构建产物，改动一律在 `src/` 里做，然后重新构建：
+`index.html` is a build artifact. Make every change in `src/` and rebuild:
 
 ```sh
 cd src
 npm run build
 ```
 
-CI 会重新构建并和已提交的 `index.html` 比对，产物过期会直接失败。
+CI rebuilds the page, compares it with the committed `index.html`, and fails when the artifact is stale.
 
-## 测试
+## Tests
 
 ```sh
 cd src
 npm test
 ```
 
-五组脚本，也可以单独跑：
+Five suites, each also runnable on its own:
 
-| 命令 | 覆盖 |
+| Command | Coverage |
 | --- | --- |
-| `npm run test:engine` | 规则、提子、禁自杀、救棋、数子，14 项 |
-| `npm run test:hints` | 提示取消、过期响应、回退与教学说明 |
-| `npm run test:record` | SGF 导入导出与畸形棋谱 |
-| `npm run test:ending` | 死棋标记辅助逻辑与数子 |
-| `npm run test:katago` | 用模拟进程验证 KataGo 桥接协议 |
+| `npm run test:engine` | Rules, captures, suicide, saving groups, counting — 14 cases |
+| `npm run test:hints` | Hint cancellation, stale responses, fallback and teaching notes |
+| `npm run test:record` | SGF import/export and malformed records |
+| `npm run test:ending` | Dead-stone marking helpers and counting |
+| `npm run test:katago` | Bridge protocol, driven by a simulated process |
 
-## 可选：接入 KataGo
+## Optional: connect KataGo
 
-本地引擎开箱即用。需要更高棋力时，准备与本机系统和硬件匹配的 KataGo 程序、`.bin.gz` 权重和分析配置，再从 `src/` 启动桥接：
+The built-in engine works out of the box. For stronger play, get a KataGo build and a `.bin.gz` network that match your machine, plus an analysis config, then start the bridge from `src/`:
 
 ```sh
 # Windows PowerShell
@@ -94,20 +92,20 @@ KATAGO_CFG=/path/to/analysis.cfg \
 node katago-server.js
 ```
 
-另开一个终端运行预览，在棋局的 KataGo 输入框填入 `http://127.0.0.1:8100` 并点击「连接」。`/health` 只表示桥接 HTTP 服务已启动，真实棋力要在点提示后看到「KataGo 建议」才算接通。
+Start the preview in another terminal, enter `http://127.0.0.1:8100` in the game's KataGo field and click **Connect**. `/health` only proves the bridge is listening; real strength is confirmed when a hint shows a **KataGo suggestion**.
 
-- [KataGo 发行页](https://github.com/lightvector/KataGo/releases)
-- [官方权重列表](https://katagotraining.org/networks/)
-- [分析配置示例](https://github.com/lightvector/KataGo/blob/master/cpp/configs/analysis_example.cfg)
+- [KataGo releases](https://github.com/lightvector/KataGo/releases)
+- [Official networks](https://katagotraining.org/networks/)
+- [Example analysis config](https://github.com/lightvector/KataGo/blob/master/cpp/configs/analysis_example.cfg)
 
-## 已知限制
+## Known limits
 
-- 内置引擎是业余水平，够用来复盘和陪练，不是职业棋力。要强棋力请接 KataGo。
-- 直接双击 `index.html` 时，部分浏览器对本地文件存储的支持不同，自动续局可能失效。想稳定续局就用 `npm start`。
-- 终局的死子需要自己点在棋盘上标记，不是自动判定。
-- 「联机」只切换提示的显示方式，跨设备真人对局需要另配房间服务。
-- 桥接和预览服务都只监听 `127.0.0.1`，不对外暴露。
+- The built-in engine plays at amateur strength. It is fine for practice and review, not for professional play. Connect KataGo if you need more.
+- Opening `index.html` by double-clicking it hits differing browser behaviour around local file storage, so autosave may not resume. Use `npm start` for reliable resume.
+- Dead stones are marked by hand at the end — they are not detected automatically.
+- The "online" toggle only switches how hints are displayed. Playing another person across devices needs a room service of its own.
+- The bridge and the preview server only listen on `127.0.0.1`.
 
-## 许可
+## License
 
 [MIT](LICENSE)
