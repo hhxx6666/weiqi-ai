@@ -4,6 +4,8 @@
 
 [English](README.md) · **[在线试玩](https://hhxx6666.github.io/weiqi-ai/)** · [MIT](LICENSE) · Node.js 20+（仅开发时需要）
 
+![对局中的棋盘、实时胜率与 AI 候选点](docs/screenshot.png)
+
 ## 功能
 
 | | |

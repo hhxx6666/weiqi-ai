@@ -4,6 +4,8 @@ Play Go in the browser: a local AI opponent, a live win-rate curve, teaching hin
 
 [简体中文](README.zh-CN.md) · **[Play the demo](https://hhxx6666.github.io/weiqi-ai/)** · [MIT](LICENSE) · Node.js 20+ (development only)
 
+![A game in progress: the board, the live win rate and the AI's candidate moves](docs/screenshot.png)
+
 ## Features
 
 | | |
