@@ -70,7 +70,7 @@
   <header>
     <h1>围棋 · AI 对局</h1>
     <span class="sub" id="boardMeta">19 路 · 中国规则 · 贴目 7.5</span>
-    <span class="badge">本�� MCTS 引擎</span>
+    <span class="badge">本地 MCTS 引擎</span>
   </header>
 
   <div class="stage">
@@ -2828,8 +2828,13 @@
       var elapsed = performance.now() - t0;
       if (progress) progress(elapsed);
       if (elapsed >= budget) {
-        recordEvaluation(res, 'local');
-        panel.apply(res, pos.moves.length, true);
+        var previous = evaluations[pos.moves.length];
+        if (previous.source === 'katago') {
+          panel.apply(previous, pos.moves.length, false);
+        } else {
+          recordEvaluation(res, 'local');
+          panel.apply(res, pos.moves.length, true);
+        }
         thinking = false;
         updateStatus();
         if (my === gen && done) done(res);

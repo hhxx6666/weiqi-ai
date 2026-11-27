@@ -1,6 +1,6 @@
-# Weiqi · AI opponent with a live win-rate chart
+# Weiqi · AI opponent with a win-rate estimate chart
 
-Play Go in the browser: a local AI opponent, a live win-rate curve, teaching hints, SGF records and endgame scoring. Pure front end, no runtime dependencies, works offline and makes no network requests.
+Play Go in the browser with a local AI opponent, win-rate estimates, teaching hints, SGF records and endgame scoring. The built-in engine works offline. You can optionally connect a local KataGo bridge.
 
 [简体中文](README.zh-CN.md) · **[Play the demo](https://hhxx6666.github.io/weiqi-ai/)** · [MIT](LICENSE) · Node.js 20+ (development only)
 
