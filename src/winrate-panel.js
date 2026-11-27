@@ -34,6 +34,9 @@
   .gw-meta{display:flex;justify-content:space-between;margin-top:8px;font-size:12px;color:var(--gw-muted);}
   .gw-meta b{color:var(--gw-ink);font-weight:600;}
   .gw-curve{width:100%;height:78px;display:block;margin-top:6px;}
+  .gw-curve-legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:#52627a;margin:4px 0 0;}
+  .gw-curve-legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;background:#2456b8;}
+  .gw-curve-legend i.gw-katago{background:#984a11;}
   .gw-curve[role="slider"]:not([aria-disabled="true"]){cursor:pointer;}
   .gw-curve[role="slider"]:focus-visible{outline:2px solid var(--gw-accent);outline-offset:2px;}
   .gw-cands{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;}
@@ -117,16 +120,18 @@
     wrap.className = 'gw-panel';
     wrap.innerHTML =
       '<section class="gw-card">' +
-        '<h3>实时胜率</h3>' +
+        '<h3>黑方胜率估算</h3>' +
         '<div class="gw-head">' +
           '<div class="gw-side"><span class="gw-dot b"></span>黑</div>' +
-          '<div class="gw-num" data-wr>50.0%</div>' +
+          '<div class="gw-num" data-wr>50%</div>' +
         '</div>' +
         '<div class="gw-bar"><i class="b" data-barb style="width:50%"></i><i class="w" data-barw style="width:50%"></i></div>' +
         '<div class="gw-meta"><span>目差 <b data-lead>—</b></span>' +
           '<span data-komi>贴目 7.5</span>' +
           '<span>第 <b data-moves>0</b> 手</span></div>' +
         '<canvas class="gw-curve" data-curve></canvas>' +
+        '<p class="gw-curve-legend"><span><i></i>本地估算</span>' +
+          '<span data-katago hidden><i class="gw-katago"></i>KataGo</span><span data-source></span></p>' +
       '</section>' +
       (showCandidates ?
       '<section class="gw-card" data-cand-card>' +
@@ -143,6 +148,8 @@
     var elLead = wrap.querySelector('[data-lead]');
     var elMoves = wrap.querySelector('[data-moves]');
     var elCurve = wrap.querySelector('[data-curve]');
+    var elKataGo = wrap.querySelector('[data-katago]');
+    var elSource = wrap.querySelector('[data-source]');
     var elCands = wrap.querySelector('[data-cands]');
     var elKomi = wrap.querySelector('[data-komi]');
     if (elKomi) elKomi.textContent = '贴目 ' + komi;
@@ -157,6 +164,8 @@
     var token = 0;          // 分析代次，切局面时作废旧任务
     var lastSig = null;
     var destroyed = false;
+    var localSource = { label: '本地估算', color: '#2456b8' };
+    var kataGoSource = { label: 'KataGo', color: '#984a11' };
 
     function drawCurve() {
       var dpr = root.devicePixelRatio || 1;
@@ -217,30 +226,33 @@
       curveCtx.lineTo(xActive, h);
       curveCtx.stroke();
 
-      curveCtx.strokeStyle = '#2456b8';
       curveCtx.lineWidth = 1.8;
-      curveCtx.beginPath();
-      var hasPrevious = false;
-      for (var move = 0; move <= maxMove; move++) {
-        var value = timeline[move];
-        if (value === null) {
-          hasPrevious = false;
-        } else {
-          if (hasPrevious) curveCtx.lineTo(x(move), y(value));
-          else curveCtx.moveTo(x(move), y(value));
-          hasPrevious = true;
+      [localSource, kataGoSource].forEach(function (source) {
+        curveCtx.strokeStyle = source.color;
+        curveCtx.beginPath();
+        var connected = false;
+        for (var move = 0; move <= maxMove; move++) {
+          var value = timeline[move];
+          if (!value || value.source !== source) {
+            connected = false;
+            continue;
+          }
+          if (connected) curveCtx.lineTo(x(move), y(value.winrate));
+          else curveCtx.moveTo(x(move), y(value.winrate));
+          connected = true;
         }
-      }
-      curveCtx.stroke();
+        curveCtx.stroke();
+      });
 
-      curveCtx.fillStyle = '#2456b8';
       for (var point = 0; point <= maxMove; point++) {
-        if (timeline[point] === null) continue;
-        var isIsolated = (point === 0 || timeline[point - 1] === null) &&
-          (point === maxMove || timeline[point + 1] === null);
+        var current = timeline[point];
+        if (!current) continue;
+        var isIsolated = timeline[point - 1]?.source !== current.source &&
+          timeline[point + 1]?.source !== current.source;
         if (point !== activeMove && !isIsolated) continue;
         curveCtx.beginPath();
-        curveCtx.arc(x(point), y(timeline[point]), point === activeMove ? 3 : 2, 0, Math.PI * 2);
+        curveCtx.arc(x(point), y(current.winrate), point === activeMove ? 3 : 2, 0, Math.PI * 2);
+        curveCtx.fillStyle = current.source.color;
         curveCtx.fill();
       }
     }
@@ -248,16 +260,21 @@
     function setTimeline(values, move) {
       if (destroyed) return;
       timeline = Array.from(values, function (value) {
-        return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null;
+        var winrate = typeof value === 'number' ? value : value?.blackWinrate;
+        if (!Number.isFinite(winrate)) return null;
+        return { winrate: Math.max(0, Math.min(1, winrate)), source: value?.source === 'katago' ? kataGoSource : localSource };
       });
       var maxMove = Math.max(0, timeline.length - 1);
       activeMove = Number.isInteger(move) ? Math.min(maxMove, Math.max(0, move)) : maxMove;
+      elKataGo.hidden = !timeline.some(function (value) { return value?.source === kataGoSource; });
       if (onReplay) {
         elCurve.tabIndex = maxMove ? 0 : -1;
         elCurve.setAttribute('aria-disabled', String(maxMove === 0));
         elCurve.setAttribute('aria-valuemax', maxMove);
         elCurve.setAttribute('aria-valuenow', activeMove);
-        elCurve.setAttribute('aria-valuetext', '第 ' + activeMove + ' 手');
+        var current = timeline[activeMove];
+        elCurve.setAttribute('aria-valuetext', '第 ' + activeMove + ' 手' +
+          (current ? ' · ' + current.source.label + ' ' + Math.round(current.winrate * 100) + '%' : ''));
       }
       drawCurve();
     }
@@ -290,7 +307,8 @@
 
     function render(stats, moveNo) {
       var wr = stats.blackWinrate;
-      elWr.textContent = (wr * 100).toFixed(1) + '%';
+      elWr.textContent = Math.round(wr * 100) + '%';
+      elSource.textContent = '当前点 · ' + (stats.source === 'katago' ? kataGoSource.label : localSource.label);
       elBarB.style.width = (wr * 100) + '%';
       elBarW.style.width = ((1 - wr) * 100) + '%';
 
@@ -412,7 +430,8 @@
       token++;
       history = [];
       lastSig = null;
-      elWr.textContent = '50.0%';
+      elWr.textContent = '50%';
+      elSource.textContent = '';
       elBarB.style.width = '50%';
       elBarW.style.width = '50%';
       elLead.textContent = '—';
@@ -441,7 +460,9 @@
         if (history.length > 400) history.shift();
         drawCurve();
       }
-      setBusy(false, '第 ' + Math.round(stats.visits) + ' 次模拟 · ' + Math.round(stats.nps) + '/秒');
+      setBusy(false, stats.source === 'katago' ? 'KataGo 分析' : stats.visits && Number.isFinite(stats.nps)
+        ? '第 ' + Math.round(stats.visits) + ' 次模拟 · ' + Math.round(stats.nps) + '/秒'
+        : '本地估算');
     }
 
     /** 外部模式：只在思考过程中刷新数字，不记曲线 */
