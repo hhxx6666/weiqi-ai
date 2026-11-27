@@ -1,6 +1,9 @@
 const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
 const engine = require('./go-engine.js');
 const ending = require('./go-ending.js');
+const { parse } = require('./go-record.js');
 
 function assertTerritoryMatchesScore(position, result) {
   const points = [...result.ownership];
@@ -39,5 +42,19 @@ for (const size of [9, 13, 19]) {
   assert.equal(finished.black, 0);
   assert.equal(finished.white, 7.5);
 }
+
+const example = parse(readFileSync(join(__dirname, '../examples/settled-endgame.sgf'), 'utf8'));
+const settled = engine.newPosition(example.size, example.komi);
+for (const stone of example.setup) settled.board[stone.move] = stone.color;
+settled.hash = engine.boardHash(settled.board, settled.n, settled.toMove);
+settled.history = [settled.hash + '|' + settled.toMove];
+for (const move of example.moves) assert.equal(engine.play(settled, move.move, move.color).ok, true);
+assert.equal(settled.passes, 2);
+const exact = ending.score(settled, []);
+assert.equal(exact.black, 45);
+assert.equal(exact.white, 43.5);
+assert.equal(example.result, 'B+' + exact.diff);
+assert.equal(Math.round(engine.estimate(settled).blackWinrate * 100), 41);
+assert.equal(engine.estimate(settled).scoreLead, -3.5);
 
 console.log('PASS: groups, neutral area, dead-stone removal, komi, and non-mutating end scoring');

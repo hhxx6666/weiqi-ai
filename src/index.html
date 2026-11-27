@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>围棋 · AI 对局与实时胜率</title>
+<title>围棋 · AI 对局与胜率估算</title>
 <style>
   :root{--accent:#2456b8;--ink:#242424;--muted:#666;--line:#e3e3e3;--bg:#f6f6f6;--card:#fff}
   *{box-sizing:border-box}
@@ -70,7 +70,7 @@
   <header>
     <h1>围棋 · AI 对局</h1>
     <span class="sub" id="boardMeta">19 路 · 中国规则 · 贴目 7.5</span>
-    <span class="badge">MCTS 引擎 + 实时胜率</span>
+    <span class="badge">本�� MCTS 引擎</span>
   </header>
 
   <div class="stage">
@@ -251,7 +251,7 @@
     var tipEl = document.getElementById('levelTip');
     if (tipEl) tipEl.textContent = REMOTE ? TIP_REMOTE : TIP_LOCAL;
     var badge = document.querySelector('header .badge');
-    if (badge) badge.textContent = REMOTE ? 'KataGo 已连接' : 'MCTS 引擎 + 实时胜率';
+    if (badge) badge.textContent = REMOTE ? 'KataGo 已连接' : '本地 MCTS 引擎';
     var btn = document.getElementById('btnKatago');
     if (btn) btn.textContent = REMOTE ? '断开' : '连接';
     var url = document.getElementById('katagoUrl');
@@ -448,10 +448,8 @@
       var elapsed = performance.now() - t0;
       if (progress) progress(elapsed);
       if (elapsed >= budget) {
+        recordEvaluation(res, 'local');
         panel.apply(res, pos.moves.length, true);
-        evaluations[pos.moves.length] = { blackWinrate: res.blackWinrate, scoreLead: res.scoreLead, candidates: [] };
-        paintTimeline();
-        saveGame();
         thinking = false;
         updateStatus();
         if (my === gen && done) done(res);
@@ -559,6 +557,7 @@
           aiTurnLocal();
           return;
         }
+        recordKataGoEvaluation(j);
         var played = playAiMove(j.move, j.candidates);
         flash('KataGo 落子 ' + coord(played));
       });
@@ -675,6 +674,7 @@
           localHint('KataGo 不可用。');
           return;
         }
+        recordKataGoEvaluation(j);
         showHintResult('KataGo', j.move, j.candidates, j.winrate);
       });
       return;
@@ -940,7 +940,22 @@
   }
 
   function paintTimeline() {
-    panel.setTimeline(evaluations.map(function (stats) { return stats.blackWinrate; }), replay === null ? timeline.length - 1 : replay);
+    panel.setTimeline(evaluations, replay === null ? timeline.length - 1 : replay);
+  }
+
+  function recordEvaluation(stats, source) {
+    evaluations[pos.moves.length] = {
+      blackWinrate: stats.blackWinrate, scoreLead: stats.scoreLead, candidates: [], source: source
+    };
+    paintTimeline();
+    saveGame();
+  }
+
+  function recordKataGoEvaluation(stats) {
+    if (!Number.isFinite(stats.winrate) || stats.winrate < 0 || stats.winrate > 1 ||
+        !Number.isFinite(stats.scoreLead)) return;
+    recordEvaluation({ blackWinrate: stats.winrate, scoreLead: stats.scoreLead }, 'katago');
+    panel.apply(evaluations[pos.moves.length], pos.moves.length, false);
   }
 
   function updateControls() {
@@ -1075,7 +1090,7 @@
     try {
       localStorage.setItem(saveKey, JSON.stringify({ sgf: R.stringify(gameRecord()), color: humanColor,
         level: level, teaching: teaching, practice: practice, dead: Array.from(dead),
-        evaluations: evaluations.map(function (stats) { return [stats.blackWinrate, stats.scoreLead]; }) }));
+        evaluations: evaluations.map(function (stats) { return [stats.blackWinrate, stats.scoreLead, stats.source]; }) }));
     } catch (e) { /* browser may restrict storage for local files */ }
   }
 
@@ -1092,7 +1107,8 @@
       if (Array.isArray(saved.evaluations) && saved.evaluations.length === timeline.length) {
         saved.evaluations.forEach(function (value, i) {
           if (Array.isArray(value) && Number.isFinite(value[0]) && value[0] >= 0 && value[0] <= 1 && Number.isFinite(value[1])) {
-            evaluations[i] = { blackWinrate: value[0], scoreLead: value[1], candidates: [] };
+            evaluations[i] = { blackWinrate: value[0], scoreLead: value[1], candidates: [],
+              source: value[2] === 'katago' ? 'katago' : 'local' };
           }
         });
       }

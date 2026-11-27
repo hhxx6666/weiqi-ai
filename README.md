@@ -11,7 +11,7 @@ Play Go in the browser: a local AI opponent, a live win-rate curve, teaching hin
 | | |
 | --- | --- |
 | **Play** | 9×9, 13×13 and 19×19 boards. The AI answers every move, and you can hand it Black so it opens the game |
-| **Win rate** | A live win-rate chart; click a point on the curve to jump to that move |
+| **Win rate** | Estimated Black win rate, labeled by source. Click a point to review that move |
 | **Teaching** | With teaching on, every turn is analysed and the recommended point is marked with a short explanation. Practice mode lets you guess first, then compares your pick with the AI's first choice and the opponent's likely reply |
 | **Endgame** | After both sides pass twice in a row you move to counting. Click stones to mark or unmark dead groups, then confirm the result — Chinese area scoring with White's komi. Resigning works mid-game too |
 | **Records** | SGF import and export, plus step-by-step review. Import follows the main line, and on a branch it takes the first variation |
@@ -56,6 +56,15 @@ npm run build
 ```
 
 CI rebuilds the page, compares it with the committed `index.html`, and fails when the artifact is stale.
+
+## Try two fixed positions
+
+Import these SGFs in the app. The blue series shows local estimates. Orange marks positions actually analyzed by KataGo for an AI move or hint. The chart breaks at a change of source. SGF imports reconstruct the curve with local estimates.
+
+| Position | What to check |
+| --- | --- |
+| [Capture in atari](examples/capture-in-atari.sgf?raw=1) | Review move 0. In the local engine test at 1,200 visits, Black finds E6, the one liberty of the white stone on D6. The SGF records the capture. |
+| [Settled endgame](examples/settled-endgame.sgf?raw=1) | Step to the final move. The local estimate shows about 41% for Black and favors White by 3.5. The SGF result records a Black win by 1.5. `node src/test-ending.cjs` verifies the area count of Black 45 and White 43.5 including komi. |
 
 ## Tests
 

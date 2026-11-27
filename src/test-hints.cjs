@@ -15,6 +15,7 @@ function buildPage({ remote = true, ready = true } = {}) {
   const els = new Map();
   const analyses = [];
   const requests = [];
+  let selectedEvaluation;
   const timers = new Map();
   let drawnHints = 0;
   let now = 0;
@@ -72,7 +73,8 @@ function buildPage({ remote = true, ready = true } = {}) {
     GoEnding,
     GoRecord,
     GoWinratePanel: { mount: () => ({
-      setKomi: noop, setSize: noop, setTimeline: noop, reset: noop, progress: noop, apply: noop, setMode: noop,
+      setKomi: noop, setSize: noop, reset: noop, progress: noop, apply: noop, setMode: noop,
+      setTimeline: (evaluations, move) => { selectedEvaluation = evaluations[move]; },
     }) },
     addEventListener: noop,
   };
@@ -112,7 +114,7 @@ function buildPage({ remote = true, ready = true } = {}) {
 
   if (ready) advance(650);
   return {
-    element, analyses, requests, advance,
+    element, analyses, requests, advance, evaluation: () => selectedEvaluation,
     screen: () => ({
       text: [...els].filter(([, node]) => node.textContent).map(([id, node]) => [id, node.textContent]),
       drawnHints,
@@ -135,7 +137,7 @@ async function check(action, response) {
   const expected = page.screen();
   const analysisCount = page.analyses.length;
   if (response === 'success') {
-    old.resolve({ ok: true, json: async () => ({ move: 60, winrate: 0.52, candidates: [{ move: 60 }] }) });
+    old.resolve({ ok: true, json: async () => ({ move: 60, winrate: 0.52, scoreLead: 2, candidates: [{ move: 60 }] }) });
   } else {
     old.reject(new Error('KataGo request failed late'));
   }
@@ -143,6 +145,7 @@ async function check(action, response) {
 
   assert.equal(page.analyses.length, analysisCount, 'Old request restarted local analysis');
   assert.deepEqual(page.screen(), expected, 'Old request changed current UI');
+  assert.notEqual(page.evaluation().source, 'katago', 'Old request changed the current evaluation source');
   assert.equal(old.options.signal?.aborted, true, 'Old remote request was not aborted');
   hint.click();
   assert.equal(page.requests.length, 2, 'Old request interfered with the next hint');
@@ -153,12 +156,14 @@ async function checkCurrentHint(response) {
   page.element('btnHint').click();
   const [request] = page.requests;
   if (response === 'success') {
-    request.resolve({ ok: true, json: async () => ({ move: 60, winrate: 0.52, candidates: [{ move: 60 }] }) });
+    request.resolve({ ok: true, json: async () => ({ move: 60, winrate: 0.52, scoreLead: 2, candidates: [{ move: 60 }] }) });
     await new Promise(setImmediate);
     assert.equal(page.analyses.length, 1, 'Successful request unexpectedly ran a local hint');
     assert.equal(page.screen().drawnHints, 1, 'Current hint did not mark a move on the board');
     assert.match(page.element('hintStatus').textContent, /KataGo 建议 D16/);
     page.advance(650);
+    assert.equal(page.evaluation().source, 'katago');
+    assert.equal(page.evaluation().blackWinrate, 0.52);
     assert.match(page.element('status').innerHTML, /轮到/, 'Opening analysis status should not get stuck');
     assert.match(page.element('hintStatus').textContent, /KataGo 建议 D16/, 'Hint result should stay visible');
   } else {
@@ -181,6 +186,7 @@ function checkLocalHint() {
   assert.match(page.element('hintStatus').textContent, /本地引擎深度分析中/);
   assert.equal(hint.textContent, '取消提示');
   page.advance(12100);
+  assert.equal(page.evaluation().source, 'local');
   assert.match(page.element('hintStatus').textContent, /本地引擎建议 D16/);
   assert.equal(page.screen().drawnHints, 1, 'Local hint should number a point on the board');
   assert.equal(hint.textContent, '关闭提示');
